@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>在线SRT处理工具</title>
+    <title>批量SRT处理工具</title>
     <style>
         body {
             max-width: 800px;
@@ -10,90 +10,102 @@
             padding: 20px;
             font-family: Arial, sans-serif;
         }
-        .upload-box {
-            border: 2px dashed #ccc;
-            padding: 30px;
-            text-align: center;
+        .file-list {
             margin: 20px 0;
-        }
-        #preview {
-            white-space: pre-wrap;
-            background: #f5f5f5;
+            border: 1px solid #ddd;
             padding: 15px;
-            max-height: 300px;
-            overflow: auto;
         }
-        button {
-            background: #4CAF50;
-            color: white;
-            padding: 10px 20px;
-            border: none;
+        .file-item {
+            display: flex;
+            align-items: center;
+            margin: 10px 0;
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+        }
+        .progress-bar {
+            width: 200px;
+            height: 20px;
+            background: #f0f0f0;
+            margin: 0 15px;
             border-radius: 4px;
-            cursor: pointer;
+            overflow: hidden;
         }
-        .hidden {
+        .progress-fill {
+            height: 100%;
+            background: #4CAF50;
+            transition: width 0.3s ease;
+        }
+        #downloadAll {
+            margin-top: 20px;
             display: none;
         }
     </style>
 </head>
 <body>
-    <h1>SRT文件处理工具</h1>
+    <h1>批量SRT处理工具</h1>
     
-    <!-- 文件上传区域 -->
     <div class="upload-box">
-        <input type="file" id="fileInput" accept=".srt">
-        <p>拖放SRT文件至此或点击选择</p>
+        <input type="file" id="fileInput" accept=".srt" multiple>
+        <p>拖放或选择多个SRT文件（支持批量选择）</p>
     </div>
 
-    <!-- 处理进度显示 -->
-    <div id="processingStatus" class="hidden">
-        <p>处理进度：<span id="progressText">0%</span></p>
-        <div id="progressBar" style="height:5px;background:#ddd;width:100%">
-            <div id="progress" style="height:100%;background:#4CAF50;width:0%"></div>
-        </div>
-    </div>
-
-    <!-- 结果预览 -->
-    <div id="resultSection" class="hidden">
-        <h3>处理结果预览</h3>
-        <div id="preview"></div>
-        <button onclick="downloadResult()">下载TXT文件</button>
-    </div>
+    <div class="file-list" id="fileList"></div>
+    <button id="downloadAll" onclick="downloadAll()">下载全部结果</button>
 
     <script>
-        // 配置API密钥（需要替换为你的实际密钥）
         const API_KEY = 'sk-3c45ea45fb0648aeac327250131ebd51';
+        let processingQueue = new Map();
+        let completedFiles = new Map();
 
-        // 初始化变量
-        let processedContent = '';
-        
-        // 文件选择事件监听
         document.getElementById('fileInput').addEventListener('change', async (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
+            const files = Array.from(e.target.files);
+            if (files.length === 0) return;
 
-            showProcessingUI(true);
-            try {
-                const content = await file.text();
-                const cleaned = cleanSRT(content);
-                processedContent = await processWithAI(cleaned);
-                showResult(processedContent);
-            } catch (error) {
-                alert('处理失败: ' + error.message);
-            } finally {
-                showProcessingUI(false);
+            resetUI();
+            initializeFileList(files);
+            
+            for (const file of files) {
+                try {
+                    await processSingleFile(file);
+                } catch (error) {
+                    updateFileStatus(file.name, 'error', error.message);
+                }
             }
+            
+            toggleDownloadAllButton();
         });
 
-        // 清理SRT格式
+        async function processSingleFile(file) {
+            updateFileStatus(file.name, 'processing');
+            
+            try {
+                const content = await readFileContent(file);
+                const cleaned = cleanSRT(content);
+                const processed = await callDeepSeekAPI(cleaned);
+                
+                completedFiles.set(file.name, processed);
+                updateFileStatus(file.name, 'completed');
+            } catch (error) {
+                throw new Error(`文件 ${file.name} 处理失败: ${error.message}`);
+            }
+        }
+
+        function readFileContent(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = reject;
+                reader.readAsText(file);
+            });
+        }
+
         function cleanSRT(content) {
             return content
                 .replace(/\d+\n\d{2}:\d{2}:\d{2},\d{3} --> \d{2}:\d{2}:\d{2},\d{3}\n/g, '')
                 .replace(/^\d+$\n?/gm, '');
         }
 
-        // 调用AI处理
-        async function processWithAI(text) {
+        async function callDeepSeekAPI(text) {
             const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
                 method: 'POST',
                 headers: {
@@ -109,10 +121,7 @@
 2. 同一说话者的连续短句合并为一段，用标点连接
 3. 语义场景转换时用空行分隔
 4. 保留原始文本内容，不添加额外说明
-5. 去除时间戳和序号，只保留对话内容
-
-处理文本：
-${text}`
+5. 去除时间戳和序号，只保留对话内容：\n${text}`
                     }],
                     temperature: 0.1
                 })
@@ -123,49 +132,88 @@ ${text}`
             return data.choices[0].message.content;
         }
 
-        // 显示处理进度
-        function showProcessingUI(show) {
-            document.getElementById('processingStatus').classList.toggle('hidden', !show);
-            if (show) {
-                let progress = 0;
-                const interval = setInterval(() => {
-                    progress = Math.min(progress + Math.random() * 10, 95);
-                    updateProgress(progress);
-                    if (!show) clearInterval(interval);
-                }, 500);
+        // UI更新函数
+        function initializeFileList(files) {
+            const listContainer = document.getElementById('fileList');
+            listContainer.innerHTML = files.map(file => `
+                <div class="file-item" id="file-${file.name}">
+                    <span>${file.name}</span>
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: 0%"></div>
+                    </div>
+                    <span class="status">等待处理</span>
+                </div>
+            `).join('');
+        }
+
+        function updateFileStatus(filename, status, errorMsg = '') {
+            const item = document.getElementById(`file-${filename}`);
+            if (!item) return;
+
+            const progressFill = item.querySelector('.progress-fill');
+            const statusText = item.querySelector('.status');
+
+            switch(status) {
+                case 'processing':
+                    progressFill.style.width = '50%';
+                    statusText.textContent = '处理中...';
+                    statusText.style.color = '#2196F3';
+                    break;
+                case 'completed':
+                    progressFill.style.width = '100%';
+                    statusText.textContent = '✓ 完成';
+                    statusText.style.color = '#4CAF50';
+                    break;
+                case 'error':
+                    progressFill.style.width = '100%';
+                    progressFill.style.background = '#f44336';
+                    statusText.textContent = `✗ 错误: ${errorMsg}`;
+                    statusText.style.color = '#f44336';
+                    break;
             }
         }
 
-        function updateProgress(percent) {
-            document.getElementById('progress').style.width = percent + '%';
-            document.getElementById('progressText').textContent = Math.round(percent) + '%';
+        function toggleDownloadAllButton() {
+            document.getElementById('downloadAll').style.display = 
+                completedFiles.size > 0 ? 'block' : 'none';
         }
 
-        // 显示结果
-        function showResult(content) {
-            document.getElementById('preview').textContent = content;
-            document.getElementById('resultSection').classList.remove('hidden');
+        function downloadAll() {
+            completedFiles.forEach((content, filename) => {
+                downloadFile(
+                    content, 
+                    filename.replace(/\.srt$/i, '') + '_processed.txt'
+                );
+            });
         }
 
-        // 下载结果
-        function downloadResult() {
-            const blob = new Blob([processedContent], { type: 'text/plain' });
+        function downloadFile(content, filename) {
+            const blob = new Blob([content], { type: 'text/plain' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `processed_${new Date().toISOString().slice(0,10)}.txt`;
+            a.download = filename;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
         }
 
-        // 拖放文件支持
-        document.addEventListener('dragover', (e) => e.preventDefault());
-        document.addEventListener('drop', (e) => {
+        function resetUI() {
+            processingQueue.clear();
+            completedFiles.clear();
+            document.getElementById('fileList').innerHTML = '';
+            document.getElementById('downloadAll').style.display = 'none';
+        }
+
+        // 拖放支持
+        document.addEventListener('dragover', e => e.preventDefault());
+        document.addEventListener('drop', e => {
             e.preventDefault();
-            const file = e.dataTransfer.files[0];
-            if (file && file.name.endsWith('.srt')) {
+            const files = Array.from(e.dataTransfer.files)
+                .filter(f => f.name.endsWith('.srt'));
+            
+            if (files.length > 0) {
                 document.getElementById('fileInput').files = e.dataTransfer.files;
                 document.getElementById('fileInput').dispatchEvent(new Event('change'));
             }
