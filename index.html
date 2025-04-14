@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>SRT批量处理工具（200文件版）</title>
+    <title>SRT批量处理工具</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <style>
         body {
@@ -91,11 +91,11 @@
     </style>
 </head>
 <body>
-    <h1>SRT批量处理工具（最大200个文件）</h1>
+    <h1>SRT批量处理工具</h1>
     
     <div class="upload-box" onclick="document.getElementById('fileInput').click()">
         <input type="file" id="fileInput" accept=".srt" multiple hidden>
-        <p>点击选择或拖放多个SRT文件（最多200个）</p>
+        <p>点击选择或拖放多个SRT文件</p>
     </div>
 
     <div class="file-list" id="fileList"></div>
@@ -111,7 +111,7 @@
 
     <script>
         // =============== 配置参数 ================
-        const API_KEY = 'your_api_key_here';      // 替换为实际API密钥
+        const API_KEY = 'sk-3c45ea45fb0648aeac327250131ebd51';      // 替换为实际API密钥
         const MAX_FILES = 200;                   // 最大文件数量
         const MAX_FILE_SIZE = 2 * 1024 * 1024;   // 单个文件最大2MB
         const MAX_CONCURRENT = 5;                // 并发处理数
@@ -233,11 +233,12 @@
                     model: "deepseek-chat",
                     messages: [{
                         role: "user",
-                        content: `SRT处理规则：
-1. 按对话轮次分段
-2. 合并连续短句
-3. 保留原始内容
-4. 移除时间戳和序号
+                        content: `你是一个专业文本分段助手，请严格按照以下规则处理：
+1. 按对话轮换划分段落，不同说话者独立成段
+2. 同一说话者的连续短句合并为一段，用标点连接
+3. 语义场景转换时用空行分隔
+4. 保留原始文本内容，不添加额外说明
+5. 去除时间戳和序号，只保留对话内容
 
 处理文本：
 ${text}`
